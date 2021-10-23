@@ -1,181 +1,414 @@
-# Reference: https://circleci.com/docs/2.0/configuration-reference/
 version: 2
+general:
+dependencies:
+  cache_directories:
+    - ~/cmake-3.16.5
+linux_job: &linux_job
+  docker:
+    - image: docker.pkg.github.com/ledgerhq/lib-ledger-core-build-env/lib-ledger-core-build-env:1.0.1
+      auth:
+        username: $DOCKER_USERNAME
+        password: $DOCKER_PASSWORD
 jobs:
-  build:
-    docker:
-      - image: circleci/elixir:1.7.2
-        environment:
-          MIX_ENV: test
-    working_directory: ~/app
+  build_linux_release:
+    <<: *linux_job
+    environment:
+      CORE_SSL_1_1: arch_ssl_1_1
+    working_directory: ~/lib-ledger-core
     steps:
-      # Checkout.
-      - restore_cache:
-          keys:
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
       - checkout
-      - save_cache:
-          key: git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-          paths: [".git"]
-      # Install tools.
-      - run: mix local.hex --force
-      - run: mix local.rebar --force
-      # Dependencies.
-      - restore_cache:
-          keys:
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      - run: mix deps.get
-      - save_cache:
-          key: deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-          paths: ["deps"]
-      # Build.
-      - restore_cache:
-          keys:
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      - run: mix compile
-      - save_cache:
-          key: build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-          paths: ["_build"]
-
-  test:
-    docker:
-      - image: circleci/elixir:1.7.2
-        environment:
-          MIX_ENV: test
-      - image: circleci/postgres:10.4-alpine-postgis
-        environment:
-          POSTGRES_USER: postgres
-          POSTGRES_DB: golden_path_test
-    working_directory: ~/app
-    steps:
-      # Checkout.
-      - restore_cache:
-          keys:
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      - checkout
-      # Install tools.
-      - run: mix local.hex --force
-      - run: mix local.rebar --force
-      # Dependencies.
-      - restore_cache:
-          keys:
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      # Build.
-      - restore_cache:
-          keys:
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      # Unfortunately needed for Bcrypt.
-      - run: rm -rf _build/test/lib/bcrypt_elixir && mix compile
-      ##
-      ## Test.
-      ##
       - run:
-          name: Waiting for postgres...
-          command: dockerize -wait tcp://localhost:5432 -timeout 15s
-      - run: mkdir _build/test/junit
-      - run: touch _build/test/junit/junit_results.xml
-      - run: mix test
-      - store_test_results:
-          path: _build/test/junit
-
-  credo:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Build_Library
+          command: |
+            . .circleci/build_lib.sh Release
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Copy_Artifacts
+          command: |
+            . .circleci/copy_artifacts.sh
+      - run:
+          name: Build_Library (with OpenSSL 1.1)
+          command: |
+            . .circleci/build_lib.sh Release $CORE_SSL_1_1
+      - run:
+          name: Copy_Artifacts (with OpenSSL 1.1)
+          command: |
+            . .circleci/copy_artifacts.sh $CORE_SSL_1_1 Release
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+  build_linux_jni_release:
+    environment:
+      CORE_SSL_1_1: arch_ssl_1_1
     docker:
-      - image: circleci/elixir:1.7.2
-        environment:
-          MIX_ENV: dev
-    working_directory: ~/app
+      - image: ledgerhq/lib-ledger-core-build-env:1.0.2
+    working_directory: ~/lib-ledger-core
     steps:
-      # Checkout.
-      - restore_cache:
-          keys:
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
       - checkout
-      # Install tools.
-      - run: mix local.hex --force
-      - run: mix local.rebar --force
-      # Dependencies.
-      - restore_cache:
-          keys:
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      # Build.
-      - restore_cache:
-          keys:
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      ##
-      ## Credo.
-      ##
-      - run: mix credo
-
-  dialyzer:
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Build_Library_jni
+          command: |
+            . .circleci/build_lib.sh target_jni Release
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Copy_Artifacts
+          command: |
+            . .circleci/copy_artifacts.sh target_jni
+      - persist_to_workspace:
+          root: ~/lib-ledger-core-artifacts
+          paths:
+            - linux/jni/libledger-core_jni.so
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+  build_android_release:
+    <<: *linux_job
+    environment:
+      CORE_SSL_1_1: arch_ssl_1_1
+    working_directory: ~/lib-ledger-core
+    steps:
+      - checkout
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Setup NDK
+          command: |
+            apt-get install -y zip unzip
+            wget --quiet https://dl.google.com/android/repository/android-ndk-r18b-linux-x86_64.zip
+            unzip -q android-ndk-r18b-linux-x86_64.zip -d /home/circleci
+            ls -la /home/circleci/android-ndk-r18b
+      - run:
+          name: Build_Library_android
+          command: |
+            . .circleci/build_lib.sh android
+      - run:
+          name: Copy_Artifacts_Android
+          command: |
+            . .circleci/copy_artifacts.sh android
+      - run:
+          name: Build_Library_android_x86_64
+          command: |
+            . .circleci/build_lib.sh android x86_64
+      - run:
+          name: Copy_Artifacts_Android_x86_64
+          command: |
+            . .circleci/copy_artifacts.sh android x86_64
+      - run:
+          name: Build_Library_android_armeabi-v7a
+          command: |
+            . .circleci/build_lib.sh android armeabi-v7a
+      - run:
+          name: Copy_Artifacts_Android_armeabi-v7a
+          command: |
+            . .circleci/copy_artifacts.sh android armeabi-v7a
+      - run:
+          name: Build_Library_android_arm64-v8a
+          command: |
+            . .circleci/build_lib.sh android arm64-v8a
+      - run:
+          name: Copy_Artifacts_Android_arm64-v8a
+          command: |
+            . .circleci/copy_artifacts.sh android arm64-v8a
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+  build_linux_debug:
+      <<: *linux_job
+      working_directory: ~/lib-ledger-core
+      steps:
+        - checkout
+        - run:
+            name: Submodule_Initialization
+            command: |
+              . .circleci/init_submodules.sh
+        - run:
+            name: Build_Library
+            command: |
+              . .circleci/build_lib.sh Debug
+        - run:
+            name: Export_Lib_Version
+            command: |
+              . .circleci/export_lib_version.sh
+        - run:
+            name: Run_Tests
+            command: |
+                cd ../lib-ledger-core-build
+                ~/cmake-3.16.5-Linux-x86_64/bin/ctest -VV -timeout 120
+  build_macos_release:
+    macos:
+      xcode: "12.0.0"
+    working_directory: ~/lib-ledger-core
+    steps:
+      - checkout
+      - run:
+          name: Setup
+          command: |
+            .circleci/setup_macos.sh Release
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Build_Library
+          command: |
+            . .circleci/build_lib.sh Release
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Copy_Artifacts
+          command: |
+            . .circleci/copy_artifacts.sh
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+  build_macos_ios_release:
+    macos:
+      xcode: "12.0.0"
+    working_directory: ~/lib-ledger-core
+    steps:
+      - checkout
+      - run:
+          name: Setup
+          command: |
+            .circleci/setup_macos.sh Release
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Build_Library_ios_x86
+          command: |
+            . .circleci/build_lib.sh ios
+      - run:
+          name: Copy_Artifacts_ios_x86
+          command: |
+            . .circleci/copy_artifacts.sh ios
+      - run:
+          name: Build_Library_ios_armv7
+          command: |
+            . .circleci/build_lib.sh ios armv7
+      - run:
+          name: Copy_Artifacts_ios_armv7
+          command: |
+            . .circleci/copy_artifacts.sh ios armv7
+      - run:
+          name: Build_Library_ios_arm64
+          command: |
+            . .circleci/build_lib.sh ios arm64
+      - run:
+          name: Copy_Artifacts_ios_arm64
+          command: |
+            . .circleci/copy_artifacts.sh ios arm64
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+            . .circleci/deploy_fat_lib.sh
+  build_macos_jni_release:
+    macos:
+      xcode: "12.0.0"
+    working_directory: ~/lib-ledger-core
+    steps:
+      - checkout
+      - run:
+          name: Setup
+          command: |
+            .circleci/setup_macos.sh Release
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Build_Library_jni
+          command: |
+            . .circleci/build_lib.sh target_jni Release
+      - run:
+          name: Copy_Artifacts_jni
+          command: |
+            . .circleci/copy_artifacts.sh target_jni
+      - persist_to_workspace:
+          root: ~/lib-ledger-core-artifacts
+          paths:
+            - macos/jni/libledger-core_jni.dylib
+      - deploy:
+          name: Deploy_Artifacts
+          command: |
+            . .circleci/deploy.sh
+  build_macos_debug:
+    macos:
+      xcode: "12.0.0"
+    working_directory: ~/lib-ledger-core
+    steps:
+      - checkout
+      - run:
+          name: Setup
+          command: |
+            .circleci/setup_macos.sh Debug
+      - run:
+          name: Submodule_Initialization
+          command: |
+            . .circleci/init_submodules.sh
+      - run:
+          name: Build_Library
+          command: |
+            . .circleci/build_lib.sh Debug
+      - run:
+          name: Export_Lib_Version
+          command: |
+            . .circleci/export_lib_version.sh
+      - run:
+          name: Run_Tests
+          command: |
+              cd ../lib-ledger-core-build
+              ctest -VV -timeout 120
+  publish_jar:
+    environment:
+      CORE_SSL_1_1: arch_ssl_1_1
     docker:
-      - image: circleci/elixir:1.7.2
-        environment:
-          MIX_ENV: dev
-    working_directory: ~/app
+      - image: ledgerhq/lib-ledger-core-build-env:1.0.2
+    working_directory: ~/lib-ledger-core
     steps:
-      # Checkout.
-      - restore_cache:
-          keys:
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      - checkout
-      # Install tools.
-      - run: mix local.hex --force
-      - run: mix local.rebar --force
-      # Dependencies.
-      - restore_cache:
-          keys:
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      # Build.
-      - restore_cache:
-          keys:
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      ##
-      ## Dialyzer.
-      ##
-      ## Running dialyzer updates _build so we need to cache again.
-      ## This cache of _build does not override the previous cache but is merged.
-      - restore_cache:
-          keys:
-            - plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-            - plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-      - run: mix dialyzer --halt-exit-status
-      - save_cache:
-          key: plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
-          paths: ["_build"]
+    - attach_workspace:
+        at: ~/lib-ledger-core-artifacts
+    - checkout
+    - run:
+        name: Submodule_Initialization
+        command: |
+          . .circleci/init_submodules.sh
+    - run:
+        name: Publish_jar
+        command: |
+          . .circleci/publish_jar.sh
+    - store_artifacts:
+        path: ~/lib-ledger-core-artifacts
+  generate_doc:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    steps:
+      - run:
+          command: git clone --depth 1 -b "$CIRCLE_TAG" --recurse-submodules "$CIRCLE_REPOSITORY_URL" .
+          environment:
+            GIT_SSH_COMMAND: ssh -o StrictHostKeyChecking=no
+      - run:
+          name: Install dependencies
+          command: |
+            sudo apt-get update -q=2
+            sudo apt-get install -qy doxygen rsync software-properties-common
+            sudo add-apt-repository --update "deb http://httpredir.debian.org/debian stretch-backports main"
+            sudo apt-get install -qy -t stretch-backports cmake
+      - run: cmake -H. -Bbuild
+      - run:
+          command: make doc
+          working_directory: ~/project/build
+      - run:
+          name: Check that the index file is present
+          command: test -f build/doc/html/index.html
+      - run:
+          name: Setup the SSH private key
+          command: |
+            install -d -m 700 ~/.ssh/
+            gpg -d --passphrase "${GPG_PASSPHRASE}" --batch -o ~/.ssh/id_ed25519 .circleci/id_ed25519.gpg
+            chmod 400 ~/.ssh/id_ed25519
+      - run: >
+          rsync -e "ssh -o StrictHostKeyChecking=no" -a --chown :www-data --delete
+          build/doc/html/ docs.libcore.ledger.com@statics.ledger.fr:.
+default_context: &default_context
+  context:
+    - githubpkg
+
+
 workflows:
   version: 2
-  verify_build:
-    # Any non-deploy branch:
-    #           / [test]
-    # [build] ->  [credo]
-    #           \ [dialyzer]
+  build:
     jobs:
-      - build
-      - test:
+      - build_linux_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+      - build_linux_jni_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              only: /^(?!pull\/).*$/
+      - build_android_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              only: /^(?!pull\/).*$/
+      - build_macos_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+      - build_macos_ios_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              only: /^(?!pull\/).*$/
+      - build_macos_jni_release:
+          <<: *default_context
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              only: /^(?!pull\/).*$/
+      - build_linux_debug:
+          <<: *default_context
+      - build_macos_debug:
+          <<: *default_context
+      - publish_jar:
           requires:
-            - build
-      - credo:
-          requires:
-            - build
-      - dialyzer:
-          requires:
-            - build
+            - build_linux_jni_release
+            - build_macos_jni_release
+          filters:
+            tags:
+              only: /.*/
+  documentation:
+    jobs:
+      - generate_doc:
+          filters:
+            tags:
+              only: /.+/
+            branches:
+              ignore: /.*/
