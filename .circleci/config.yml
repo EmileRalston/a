@@ -2,7 +2,7 @@ working_dir: &working_dir ~/app
 .build_template: &script
   steps:
     - checkout
-    - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+    - run: echo hello
     - run:
         name: Run tests
         command: |
