@@ -4,8 +4,6 @@ working_dir: &working_dir ~/app
     - checkout
     - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
     - run: chmod +x ./cc-test-reporter
-    - run: ./cc-test-reporter before-build
-    - run: gem install bundler:2.1.4
     - run:
         name: Run tests
         command: |
