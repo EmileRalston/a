@@ -1,221 +1,181 @@
-version: "2.1"
-description: |
-  Build sbt project
-orbs:
-  aws-ecr: circleci/aws-ecr@6.8.2 # https://circleci.com/orbs/registry/orb/circleci/aws-ecr?version=6.8.2
-  aws-cli: circleci/aws-cli@1.0.0
-
-commands:
-  restore_cache_sbt:
-    parameters:
-      cache_key_prefix:
-        default: v1
-        type: string
-      use_circleci_user_home_directory:
-        description: >-
-          If cache is saved by root user, circleci user cannot access and use these directories.
-          So move these directories to circleci user home directory and chmod.
-          https://support.circleci.com/hc/ja/articles/360004250693
-        type: boolean
-        default: false
+# Reference: https://circleci.com/docs/2.0/configuration-reference/
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/elixir:1.7.2
+        environment:
+          MIX_ENV: test
+    working_directory: ~/app
     steps:
-      - run:
-          name: "create file for cache checksum"
-          command: cat project/*.scala project/*.sbt project/*.properties > .circleci/for_chache.tmp
+      # Checkout.
       - restore_cache:
           keys:
-            - <<parameters.cache_key_prefix>>-dependencies-{{ checksum "build.sbt" }}-{{ checksum ".circleci/for_chache.tmp" }}
-            # fallback to using the latest cache if no exact match is found
-            - <<parameters.cache_key_prefix>>-dependencies-{{ checksum "build.sbt" }}
-            - <<parameters.cache_key_prefix>>-dependencies-
-      - when:
-          condition: << parameters.use_circleci_user_home_directory >>
-          steps:
-            - run:
-                name: move cached directories from /home/circleci
-                command: |
-                  if [ `whoami` != "circleci" ] && [ -e "/home/circleci" ] ; then
-                    echo "move to my home directory"
-                    mkdir -p /home/circleci/.ivy2 /home/circleci/.cache /home/circleci/.sbt /home/circleci/.m2
-                    cp -r /home/circleci/.ivy2 ~/
-                    cp -r /home/circleci/.cache ~/
-                    cp -r /home/circleci/.sbt ~/
-                    cp -r /home/circleci/.m2 ~/
-                  fi
-  save_cache_sbt:
-    parameters:
-      cache_key_prefix:
-        default: v1
-        type: string
-      use_circleci_user_home_directory:
-        description: >-
-          If cache is saved by root user, circleci user cannot access and use these directories.
-          So move these directories to circleci user home directory and chmod.
-          https://support.circleci.com/hc/ja/articles/360004250693
-        type: boolean
-        default: false
-    steps:
-      - run:
-          name: "create file for cache checksum"
-          command: cat project/*.scala project/*.sbt project/*.properties > .circleci/for_chache.tmp
-      - when:
-          condition: << parameters.use_circleci_user_home_directory >>
-          steps:
-            - run:
-                name: move cached directories to /home/circleci
-                command: |
-                  if [ `whoami` != "circleci" ]; then
-                    echo "move to circleci user home directory"
-                    mkdir -p ~/.ivy2/cache ~/.cache/coursier ~/.sbt ~/.m2
-                    mkdir -p /home/circleci/.ivy2 /home/circleci/.cache
-                    cp -r ~/.ivy2/cache /home/circleci/.ivy2/
-                    cp -r ~/.cache/coursier /home/circleci/.cache/
-                    cp -r ~/.sbt /home/circleci/
-                    cp -r ~/.m2 /home/circleci/
-                    # chmod cache directories / available for anyone
-                    chmod -R 777 /home/circleci/.ivy2/cache
-                    chmod -R 777 /home/circleci/.cache/coursier
-                    chmod -R 777 /home/circleci/.sbt
-                    chmod -R 777 /home/circleci/.m2
-                  fi
-            - save_cache:
-                paths:
-                  - "/home/circleci/.ivy2/cache"
-                  - "/home/circleci/.cache/coursier"
-                  - "/home/circleci/.sbt"
-                  - "/home/circleci/.m2"
-                key: <<parameters.cache_key_prefix>>-dependencies-{{ checksum "build.sbt" }}-{{ checksum ".circleci/for_chache.tmp" }}
-      - unless:
-          condition: << parameters.use_circleci_user_home_directory >>
-          steps:
-            - save_cache:
-                paths:
-                  - "~/.ivy2/cache"
-                  - "~/.cache/coursier"
-                  - "~/.sbt"
-                  - "~/.m2"
-                key: <<parameters.cache_key_prefix>>-dependencies-{{ checksum "build.sbt" }}-{{ checksum ".circleci/for_chache.tmp" }}
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - checkout
+      - save_cache:
+          key: git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+          paths: [".git"]
+      # Install tools.
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      # Dependencies.
+      - restore_cache:
+          keys:
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - run: mix deps.get
+      - save_cache:
+          key: deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+          paths: ["deps"]
+      # Build.
+      - restore_cache:
+          keys:
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - run: mix compile
+      - save_cache:
+          key: build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+          paths: ["_build"]
 
-
-  docker_build_and_push_to_ecr:
-    description: |
-      Build dockerfile from sbt settings (sbt-native-packager is required)
-      and Push Docker-image to AWS ECR with aws-ecr Orb.
-    parameters:
-      account-url:
-        default: AWS_ECR_ACCOUNT_URL
-        description: for aws-ecr Orb
-        type: env_var_name
-      aws-access-key-id:
-        default: AWS_ACCESS_KEY_ID
-        description: for aws-ecr Orb
-        type: env_var_name
-      aws-secret-access-key:
-        default: AWS_SECRET_ACCESS_KEY
-        description: for aws-ecr Orb
-        type: env_var_name
-      region:
-        default: AWS_REGION
-        description: for aws-ecr Orb
-        type: env_var_name
-      sbt_subproject:
-        description: "project name defined in build.sbt"
-        type: string
-      setup_aws_ecr:
-        description: setup aws config and ecr-login
-        type: boolean
-        default: true
-      setup_remote_docker:
-        description: >
-          Setup and use CircleCI's remote Docker environment for Docker and
-          docker-compose commands? Not required if using the default executor
-        type: boolean
-        default: true
-      setup_remote_docker_version:
-        description: |
-          Docker version for setup_remote_docker
-          if older than 17.09-ce, chown layer is created and image size will be larger
-          https://docs.docker.com/engine/release-notes/#17090-ce
-        type: string
-        default: "19.03.8"
-      path_from_sbt:
-        description: "sbt"
-        type: boolean
-        default: true
-      path:
-        default: .
-        description: >-
-          Path to the directory containing your Dockerfile and build context.
-          Defaults to . (working directory).
-        type: string
-      repo:
-        description: Name of an Amazon ECR repository
-        type: string
-      tag:
-        default: latest
-        description: >-
-          A comma-separated string containing docker image tags to build and push
-          (default = latest)
-        type: string
+  test:
+    docker:
+      - image: circleci/elixir:1.7.2
+        environment:
+          MIX_ENV: test
+      - image: circleci/postgres:10.4-alpine-postgis
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: golden_path_test
+    working_directory: ~/app
     steps:
-      - when:
-          condition: << parameters.setup_remote_docker >>
-          steps:
-            - setup_remote_docker:
-                version: <<parameters.setup_remote_docker_version>>
+      # Checkout.
+      - restore_cache:
+          keys:
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - checkout
+      # Install tools.
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      # Dependencies.
+      - restore_cache:
+          keys:
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      # Build.
+      - restore_cache:
+          keys:
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      # Unfortunately needed for Bcrypt.
+      - run: rm -rf _build/test/lib/bcrypt_elixir && mix compile
+      ##
+      ## Test.
+      ##
       - run:
-          name: "get docker staging path"
-          command: |
-            if <<parameters.path_from_sbt>> ; then
-              # remove ANSI color codes
-              sbt << parameters.sbt_subproject >>/docker:stagingDirectory | sed -r 's/[[:cntrl:]]\[[0-9]{1,3}m//g' > sbt_result.txt
-              echo "stagingDirectory"
-              cat sbt_result.txt # for debug
-              MY_DOCKER_STAGING_DIRECTORY=`cat sbt_result.txt | tail -n 1`
-              # remove `[info] ` from head of line
-              MY_DOCKER_PATH=`echo ${MY_DOCKER_STAGING_DIRECTORY:7}`
-            else
-              MY_DOCKER_PATH=<<parameters.path>>
-            fi
-            echo "MY_DOCKER_PATH=$MY_DOCKER_PATH"
-            echo "export MY_DOCKER_PATH=$MY_DOCKER_PATH" >> $BASH_ENV
-      - build_dockerfile_with_sbt:
-          sbt_subproject: "<< parameters.sbt_subproject >>"
-      # extend steps in aws-ecr/build-and-push-image
-      - when:
-          condition: <<parameters.setup_aws_ecr>>
-          steps:
-            - aws-cli/setup:
-                version: '1'
-                aws-access-key-id: <<parameters.aws-access-key-id>>
-                aws-region: <<parameters.region>>
-                aws-secret-access-key: <<parameters.aws-secret-access-key>>
-                profile-name: default
-            - aws-ecr/ecr-login:
-                region: <<parameters.region>>
-      - aws-ecr/build-image:
-          account-url: <<parameters.account-url>>
-          path: "$MY_DOCKER_PATH"
-          repo: <<parameters.repo>>
-          tag: <<parameters.tag>>
-      - aws-ecr/push-image:
-          account-url: <<parameters.account-url>>
-          repo: <<parameters.repo>>
-          tag: <<parameters.tag>>
+          name: Waiting for postgres...
+          command: dockerize -wait tcp://localhost:5432 -timeout 15s
+      - run: mkdir _build/test/junit
+      - run: touch _build/test/junit/junit_results.xml
+      - run: mix test
+      - store_test_results:
+          path: _build/test/junit
 
-  build_dockerfile_with_sbt:
-    parameters:
-      sbt_subproject:
-        description: "project name defined in build.sbt"
-        type: string
-        default: ""
+  credo:
+    docker:
+      - image: circleci/elixir:1.7.2
+        environment:
+          MIX_ENV: dev
+    working_directory: ~/app
     steps:
-      - run:
-          name: "build image"
-          command: |
-            if [ "<< parameters.sbt_subproject >>" = "" ]; then
-              cat /dev/null | sbt docker:stage
-            else
-              cat /dev/null | sbt << parameters.sbt_subproject >>/docker:stage
-            fi
-            docker version # for debug
+      # Checkout.
+      - restore_cache:
+          keys:
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - checkout
+      # Install tools.
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      # Dependencies.
+      - restore_cache:
+          keys:
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      # Build.
+      - restore_cache:
+          keys:
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      ##
+      ## Credo.
+      ##
+      - run: mix credo
+
+  dialyzer:
+    docker:
+      - image: circleci/elixir:1.7.2
+        environment:
+          MIX_ENV: dev
+    working_directory: ~/app
+    steps:
+      # Checkout.
+      - restore_cache:
+          keys:
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - git-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - checkout
+      # Install tools.
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      # Dependencies.
+      - restore_cache:
+          keys:
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+            - deps-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      # Build.
+      - restore_cache:
+          keys:
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ .Revision }}
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+            - build-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      ##
+      ## Dialyzer.
+      ##
+      ## Running dialyzer updates _build so we need to cache again.
+      ## This cache of _build does not override the previous cache but is merged.
+      - restore_cache:
+          keys:
+            - plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+            - plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+      - run: mix dialyzer --halt-exit-status
+      - save_cache:
+          key: plt-cache-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ checksum "mix.lock" }}
+          paths: ["_build"]
+workflows:
+  version: 2
+  verify_build:
+    # Any non-deploy branch:
+    #           / [test]
+    # [build] ->  [credo]
+    #           \ [dialyzer]
+    jobs:
+      - build
+      - test:
+          requires:
+            - build
+      - credo:
+          requires:
+            - build
+      - dialyzer:
+          requires:
+            - build
