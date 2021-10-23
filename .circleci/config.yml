@@ -147,7 +147,7 @@ jobs:
     parallelism: 4   
   masparto25:
     docker:
-      - image: ruby
+      - image: circleci/elixir:1.7.2
     parallelism: 4    
     steps:
       - checkout
